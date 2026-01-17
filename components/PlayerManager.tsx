@@ -34,7 +34,7 @@ export const PlayerManager: React.FC = () => {
   const [playerNumber, setPlayerNumber] = useState('');
   const [throwing, setThrowing] = useState<'右' | '左'>('右');
   const [batting, setBatting] = useState<'右' | '左' | '両'>('右');
-  const [position, setPosition] = useState('');
+  const [position, setPosition] = useState('野手');
 
   useEffect(() => {
     const qTeams = query(collection(db, 'teams'), orderBy('createdAt', 'desc'));
@@ -61,7 +61,7 @@ export const PlayerManager: React.FC = () => {
 
   const handleOpenAddPlayer = () => {
     if (!selectedTeamId) return alert("先にチームを選択してください");
-    setEditingPlayer(null); setPlayerName(''); setPlayerNumber(''); setPosition('');
+    setEditingPlayer(null); setPlayerName(''); setPlayerNumber(''); setPosition('野手');
     setIsPlayerModalOpen(true);
   };
 
@@ -151,7 +151,7 @@ export const PlayerManager: React.FC = () => {
                   <tr className="bg-slate-50/50 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b">
                     <th className="px-10 py-6 text-center">#</th>
                     <th className="px-10 py-6">選手名</th>
-                    <th className="px-10 py-6">ポジション</th>
+                    <th className="px-10 py-6">カテゴリー</th>
                     <th className="px-10 py-6">投 / 打</th>
                     <th className="px-10 py-6 text-right">操作</th>
                   </tr>
@@ -173,7 +173,7 @@ export const PlayerManager: React.FC = () => {
                         </td>
                         <td className="px-10 py-5 font-black text-slate-900">{player.name}</td>
                         <td className="px-10 py-5">
-                          <span className="px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-[10px] font-black border border-indigo-100 uppercase">
+                          <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black border uppercase ${player.position === '投手' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
                             {player.position}
                           </span>
                         </td>
@@ -255,11 +255,19 @@ export const PlayerManager: React.FC = () => {
                    </div>
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">ポジション</label>
-                  <select value={position} onChange={e=>setPosition(e.target.value)} className="w-full p-4 bg-slate-50 rounded-2xl font-black appearance-none border-none outline-none">
-                    <option value="">選択してください</option>
-                    {['投手', '捕手', '一塁手', '二塁手', '三塁手', '遊撃手', '左翼手', '中堅手', '右翼手', '指名打者'].map(p => <option key={p} value={p}>{p}</option>)}
-                  </select>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">カテゴリー (ポジション)</label>
+                  <div className="grid grid-cols-2 gap-4">
+                    {['投手', '野手'].map(p => (
+                      <button 
+                        key={p} 
+                        type="button" 
+                        onClick={() => setPosition(p)} 
+                        className={`py-4 rounded-2xl font-black text-sm transition-all border-2 ${position === p ? 'bg-indigo-600 text-white border-indigo-500 shadow-lg' : 'bg-slate-50 text-slate-400 border-slate-100'}`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                    <div className="bg-slate-50 p-1.5 rounded-2xl flex">
