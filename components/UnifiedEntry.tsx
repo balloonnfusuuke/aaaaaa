@@ -8,9 +8,13 @@ export const UnifiedEntry: React.FC = () => {
   const [players, setPlayers] = useState<Player[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   
-  // 試合状況
+  // ゲーム基本設定
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [opponent, setOpponent] = useState('');
+  const [myTeamId, setMyTeamId] = useState('');
+  const [opponentId, setOpponentId] = useState('');
+  const [isHome, setIsHome] = useState(true); // 自チームがホーム(後攻)ならtrue
+
+  // 試合状況
   const [inning, setInning] = useState(1);
   const [isTop, setIsTop] = useState(true);
   const [outs, setOuts] = useState(0);
@@ -48,7 +52,9 @@ export const UnifiedEntry: React.FC = () => {
   const [isAdvancement, setIsAdvancement] = useState(false);
 
   useEffect(() => {
-    onSnapshot(collection(db, 'teams'), (snap) => setTeams(snap.docs.map(d => ({ id: d.id, ...d.data() } as Team))));
+    onSnapshot(collection(db, 'teams'), (snap) => {
+      setTeams(snap.docs.map(d => ({ id: d.id, ...d.data() } as Team)));
+    });
     onSnapshot(collection(db, 'players'), (snap) => setPlayers(snap.docs.map(d => ({ id: d.id, ...d.data() } as Player))));
   }, []);
 
@@ -60,17 +66,42 @@ export const UnifiedEntry: React.FC = () => {
   };
 
   const getTrajectoryColor = (deg: number) => {
-    if (deg < 10) return '#ef4444'; // Red for Grounder
-    if (deg < 25) return '#10b981'; // Emerald for Liner
-    if (deg < 50) return '#6366f1'; // Indigo for Fly
-    return '#a855f7'; // Purple for Pop
+    if (deg < 10) return '#ef4444'; 
+    if (deg < 25) return '#10b981'; 
+    if (deg < 50) return '#6366f1'; 
+    return '#a855f7'; 
   };
+
+  // 攻撃チーム・守備チームの判定ロジック
+  const getAttackingTeamId = () => {
+    if (!myTeamId || !opponentId) return null;
+    if (isHome) {
+      return isTop ? opponentId : myTeamId;
+    } else {
+      return isTop ? myTeamId : opponentId;
+    }
+  };
+
+  const getDefendingTeamId = () => {
+    if (!myTeamId || !opponentId) return null;
+    if (isHome) {
+      return isTop ? myTeamId : opponentId;
+    } else {
+      return isTop ? opponentId : myTeamId;
+    }
+  };
+
+  const attackingTeamName = teams.find(t => t.id === getAttackingTeamId())?.name || '---';
+  const defendingTeamName = teams.find(t => t.id === getDefendingTeamId())?.name || '---';
 
   const handleSubmit = async () => {
     if (!pitcherId || !batterId) return alert("投手と打者を選択してください");
+    if (!myTeamId || !opponentId) return alert("自チームと対戦相手を設定してください");
+
+    const oppName = teams.find(t => t.id === opponentId)?.name || '';
 
     const record: UnifiedRecord = {
-      date, opponent, inning, isTop, outs, runners, balls, strikes, scoreDiff: 0, gameSituation: situation,
+      date, opponent: oppName, inning, isTop, outs, runners, balls, strikes, scoreDiff: 0, gameSituation: situation,
       pitcherId, pitcherName: players.find(p=>p.id===pitcherId)?.name || '',
       pitchType, speed: speed === '' ? null : Number(speed), location, intent, intentResult, isPitchMiss, pitchEval: '妥当',
       pitchOutcome,
@@ -88,14 +119,12 @@ export const UnifiedEntry: React.FC = () => {
     try {
       await addDoc(collection(db, 'unified_logs'), record);
       
-      // 次の1球への状態更新ロジック
       if (pitchOutcome !== 'インプレー') {
          setAtBatPitches(prev => prev + 1);
          if (pitchOutcome === 'ボール' && balls < 3) setBalls(balls + 1);
          if (['見逃しS', '空振りS'].includes(pitchOutcome) && strikes < 2) setStrikes(strikes + 1);
          if (pitchOutcome === 'ファウル' && strikes < 2) setStrikes(strikes + 1);
       } else {
-         // インプレー保存時のオートイニング進行ロジック
          let newOuts = outs;
          const isSingleOut = ['三振(空振り)', '三振(見逃し)', '内野凡打', '外野フライ', 'ライナー', 'ポップフライ', '犠飛', '犠打'].includes(paResult);
          const isDoublePlay = paResult === '併殺打';
@@ -104,7 +133,6 @@ export const UnifiedEntry: React.FC = () => {
          if (isDoublePlay) newOuts += 2;
 
          if (newOuts >= 3) {
-            // チェンジ
             setOuts(0);
             setRunners({ first: false, second: false, third: false });
             if (isTop) {
@@ -113,16 +141,18 @@ export const UnifiedEntry: React.FC = () => {
                setIsTop(true);
                setInning(prev => prev + 1);
             }
+            // 攻守交代につき選手選択をリセット
+            setPitcherId('');
+            setBatterId('');
          } else {
             setOuts(newOuts);
+            // アウトになっても打者は交代
+            setBatterId('');
          }
 
-         // カウントリセット
          setAtBatPitches(1);
          setBalls(0);
          setStrikes(0);
-         
-         // 入力バッファリセット
          setPitchOutcome('見逃しS');
          setPaResult('進行中');
          setIsAdvancement(false);
@@ -135,18 +165,17 @@ export const UnifiedEntry: React.FC = () => {
     } catch (e) { alert("保存失敗"); }
   };
 
-  const PlayerSelect = ({ id, value, onChange, label }: { id: string, value: string, onChange: (val: string) => void, label: string }) => {
+  const PlayerSelect = ({ id, value, onChange, label, teamId }: { id: string, value: string, onChange: (val: string) => void, label: string, teamId: string | null }) => {
+    const filteredPlayers = players.filter(p => p.teamId === teamId);
+    const teamName = teams.find(t => t.id === teamId)?.name || '未設定';
+
     return (
       <div className="space-y-2">
-        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">{label}</label>
+        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">{label} ({teamName})</label>
         <select value={value} onChange={e=>onChange(e.target.value)} className="w-full bg-slate-50 p-4 rounded-2xl font-black text-slate-800 border-none outline-none appearance-none">
           <option value="">選手を選択</option>
-          {teams.map(team => (
-            <optgroup key={team.id} label={team.name}>
-              {players.filter(p => p.teamId === team.id).map(p => (
-                <option key={p.id} value={p.id}>#{p.number} {p.name}</option>
-              ))}
-            </optgroup>
+          {filteredPlayers.map(p => (
+            <option key={p.id} value={p.id}>#{p.number} {p.name} ({p.position})</option>
           ))}
         </select>
       </div>
@@ -157,6 +186,35 @@ export const UnifiedEntry: React.FC = () => {
 
   return (
     <div className="relative space-y-8 animate-fade-in pb-96">
+      {/* Game Config Section */}
+      <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
+         <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">自チーム (My Team)</label>
+            <select value={myTeamId} onChange={e=>setMyTeamId(e.target.value)} className="w-full bg-slate-50 p-3 rounded-xl font-bold border-none">
+              <option value="">選択してください</option>
+              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+         </div>
+         <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">対戦相手 (Opponent)</label>
+            <select value={opponentId} onChange={e=>setOpponentId(e.target.value)} className="w-full bg-slate-50 p-3 rounded-xl font-bold border-none">
+              <option value="">選択してください</option>
+              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+         </div>
+         <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">立場</label>
+            <div className="flex bg-slate-100 p-1 rounded-xl">
+               <button onClick={()=>setIsHome(true)} className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${isHome ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>ホーム(後攻)</button>
+               <button onClick={()=>setIsHome(false)} className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${!isHome ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>ビジター(先攻)</button>
+            </div>
+         </div>
+         <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">試合日</label>
+            <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full bg-slate-50 p-3 rounded-xl font-bold border-none" />
+         </div>
+      </div>
+
       {/* Status Bar */}
       <div className="bg-slate-900 text-white p-8 rounded-[3rem] shadow-2xl flex flex-wrap items-center justify-between gap-8 border-b-8 border-slate-950">
         <div className="flex items-center space-x-10">
@@ -181,21 +239,44 @@ export const UnifiedEntry: React.FC = () => {
              </div>
            </div>
         </div>
-        <div className="flex items-center space-x-4">
-          <input value={opponent} onChange={e=>setOpponent(e.target.value)} placeholder="対戦相手" className="bg-slate-800 border-none rounded-2xl px-4 py-3 text-sm font-bold w-40 outline-none focus:ring-2 focus:ring-indigo-500" />
-          <div className="bg-slate-800 px-6 py-3 rounded-2xl flex items-center space-x-2">
-             <span className="text-2xl font-black text-white">{inning}</span>
-             <button onClick={() => setIsTop(!isTop)} className={`px-2 py-1 rounded-lg text-[10px] font-black ${isTop ? 'bg-indigo-600' : 'bg-emerald-600'}`}>{isTop ? '表' : '裏'}</button>
+        
+        <div className="flex flex-col items-center">
+           <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em] mb-1">攻撃中: {isTop ? '表' : '裏'}</span>
+           <div className="bg-indigo-600 px-8 py-3 rounded-full shadow-lg shadow-indigo-900/40 animate-pulse">
+              <span className="text-xl font-black italic tracking-tighter">{attackingTeamName}</span>
+           </div>
+        </div>
+
+        <div className="flex items-center space-x-6">
+          <div className="bg-slate-800 px-8 py-4 rounded-[1.5rem] flex items-center space-x-4 border border-slate-700">
+             <div className="flex flex-col items-center">
+                <span className="text-[8px] font-black text-slate-500 uppercase">INNING</span>
+                <span className="text-3xl font-black text-white">{inning}</span>
+             </div>
+             <div className="h-8 w-px bg-slate-700"></div>
+             <div className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${isTop ? 'bg-indigo-600 text-white' : 'bg-emerald-600 text-white'}`}>
+                {isTop ? '表' : '裏'}
+             </div>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* PITCHER Selection Area */}
         <div className="lg:col-span-3 space-y-6">
-          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4">
+               <span className="text-[8px] font-black text-indigo-500 bg-indigo-50 px-2 py-1 rounded">DEFENDING</span>
+            </div>
             <h4 className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-6"><i className="fas fa-mound mr-2"></i> PITCHER</h4>
             <div className="space-y-6">
-              <PlayerSelect id="pitcher" value={pitcherId} onChange={setPitcherId} label="投手" />
+              <PlayerSelect 
+                id="pitcher" 
+                value={pitcherId} 
+                onChange={setPitcherId} 
+                label="投手" 
+                teamId={getDefendingTeamId()} 
+              />
               <div className="grid grid-cols-2 gap-3">
                 <select value={pitchType} onChange={e=>setPitchType(e.target.value as any)} className="bg-slate-50 p-3 rounded-xl font-bold border-none text-xs">
                   {['ストレート', 'スライダー', 'カット', 'カーブ', 'フォーク', 'チェンジアップ', 'シンカー', 'シュート', 'その他'].map(t => <option key={t} value={t}>{t}</option>)}
@@ -206,6 +287,7 @@ export const UnifiedEntry: React.FC = () => {
           </div>
         </div>
 
+        {/* STRIKE ZONE Area */}
         <div className="lg:col-span-6">
           <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl flex flex-col items-center">
             <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-8">ZONE SELECTION</h4>
@@ -233,11 +315,21 @@ export const UnifiedEntry: React.FC = () => {
           </div>
         </div>
 
+        {/* BATTER Selection Area */}
         <div className="lg:col-span-3 space-y-6">
-          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4">
+               <span className="text-[8px] font-black text-emerald-500 bg-emerald-50 px-2 py-1 rounded">ATTACKING</span>
+            </div>
             <h4 className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-6"><i className="fas fa-bat mr-2"></i> BATTER</h4>
             <div className="space-y-6">
-              <PlayerSelect id="batter" value={batterId} onChange={setBatterId} label="打者" />
+              <PlayerSelect 
+                id="batter" 
+                value={batterId} 
+                onChange={setBatterId} 
+                label="打者" 
+                teamId={getAttackingTeamId()} 
+              />
               <div className="grid grid-cols-2 gap-3">
                  <button onClick={()=>setIsHardHit(!isHardHit)} className={`py-4 rounded-xl text-[10px] font-black border transition-all ${isHardHit ? 'bg-orange-500 text-white shadow-lg border-orange-400' : 'bg-white text-slate-400 border-slate-100'}`}>強打</button>
                  <button onClick={()=>setIsSweetSpot(!isSweetSpot)} className={`py-4 rounded-xl text-[10px] font-black border transition-all ${isSweetSpot ? 'bg-emerald-500 text-white shadow-lg border-emerald-400' : 'bg-white text-slate-400 border-slate-100'}`}>芯</button>
@@ -258,13 +350,10 @@ export const UnifiedEntry: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-            {/* Diagram Column */}
             <div className="lg:col-span-4 flex flex-col items-center justify-center space-y-6">
                <div className="w-full aspect-[4/3] bg-slate-50 rounded-[2rem] border-2 border-slate-100 relative overflow-hidden p-4">
                   <svg viewBox="0 0 100 60" className="w-full h-full drop-shadow-lg">
-                    {/* Ground line */}
                     <line x1="10" y1="55" x2="90" y2="55" stroke="#cbd5e1" strokeWidth="2" strokeLinecap="round" />
-                    {/* Trajectory Arc */}
                     <path 
                       d={`M 10 55 Q 50 ${55 - (battedAngle * 1.5)} 90 ${battedAngle > 0 ? 55 - (battedAngle * 0.8) : 55}`} 
                       fill="none" 
@@ -273,7 +362,6 @@ export const UnifiedEntry: React.FC = () => {
                       strokeDasharray="2 2"
                       className="transition-all duration-300"
                     />
-                    {/* Ball Indicator */}
                     <circle 
                       cx="50" 
                       cy={55 - (battedAngle * 0.75)} 
@@ -281,9 +369,7 @@ export const UnifiedEntry: React.FC = () => {
                       fill={getTrajectoryColor(battedAngle)}
                       className="transition-all duration-300"
                     />
-                    {/* Start Point */}
                     <circle cx="10" cy="55" r="3" fill="#64748b" />
-                    {/* Labels */}
                     <text x="50" y="58" textAnchor="middle" fontSize="4" fontWeight="bold" fill="#94a3b8">FIELD SURFACE</text>
                   </svg>
                </div>
@@ -295,7 +381,6 @@ export const UnifiedEntry: React.FC = () => {
                </div>
             </div>
 
-            {/* Inputs Column */}
             <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-8">
                <div className="space-y-6">
                   <div className="space-y-4">
