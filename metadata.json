@@ -1,0 +1,5 @@
+{
+  "name": "Firebase RBAC Manager",
+  "description": "A secure React application template featuring Firebase Authentication and Role-Based Access Control (Admin/User). Includes a setup guide and integrated Gemini AI assistant to help manage user permissions.",
+  "requestFramePermissions": []
+}
