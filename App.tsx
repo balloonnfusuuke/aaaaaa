@@ -86,7 +86,6 @@ const App: React.FC = () => {
 
   const isAdmin = profile?.role === 'admin';
 
-  // ログイン後に管理権限がない場合、自動的に成績閲覧画面へ
   useEffect(() => {
     if (user && !loading && !isAdmin && currentView !== 'leaderboard') {
       setCurrentView('leaderboard');
@@ -170,45 +169,48 @@ const App: React.FC = () => {
         </div>
       </nav>
 
-      <main className="max-w-[1600px] mx-auto px-6 pt-10 pb-32 flex-1 w-full">
-        {isAdmin && currentView === 'dashboard' ? (
-           <div className="space-y-12 animate-fade-in">
-              <header>
-                <h2 className="text-5xl font-black text-slate-900 tracking-tighter">ADMIN DASHBOARD</h2>
-                <p className="text-slate-400 font-bold mt-2 italic">Welcome back, manager. Data awaits your decision.</p>
-              </header>
+      <main className="max-w-[1600px] mx-auto px-6 pt-10 pb-32 flex-1 w-full relative">
+        {/*
+          状態保持のため、コンポーネントをアンマウントせず、hiddenクラスで切り替えます。
+          これにより、入力中のフォーム情報がメモリに残り続けます。
+        */}
+        <div className={currentView === 'dashboard' ? 'block' : 'hidden'}>
+          {isAdmin && (
+            <div className="space-y-12 animate-fade-in">
+                <header>
+                  <h2 className="text-5xl font-black text-slate-900 tracking-tighter">ADMIN DASHBOARD</h2>
+                  <p className="text-slate-400 font-bold mt-2 italic">Welcome back, manager. Data awaits your decision.</p>
+                </header>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                  <button onClick={() => setCurrentView('unified_entry')} className="group bg-indigo-600 p-10 rounded-[3rem] text-white shadow-2xl hover:scale-[1.02] transition-all text-left">
+                    <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center text-xl mb-6"><i className="fas fa-plus"></i></div>
+                    <h3 className="text-2xl font-black mb-2 tracking-tight">DATA ENTRY</h3>
+                    <p className="text-indigo-100 text-xs font-bold opacity-80 leading-relaxed">全ての投球・打席イベントをリアルタイムに記録します。</p>
+                  </button>
+                  <button onClick={() => setCurrentView('leaderboard')} className="group bg-white p-10 rounded-[3rem] text-slate-900 shadow-sm border border-slate-100 hover:scale-[1.02] transition-all text-left">
+                    <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-xl mb-6 text-indigo-600"><i className="fas fa-trophy"></i></div>
+                    <h3 className="text-2xl font-black mb-2 tracking-tight">LEADERBOARD</h3>
+                    <p className="text-slate-400 text-xs font-bold leading-relaxed">期間別、カテゴリ別のチーム成績を分析します。</p>
+                  </button>
+                  <button onClick={() => setCurrentView('unified_logs')} className="group bg-slate-900 p-10 rounded-[3rem] text-white shadow-xl hover:scale-[1.02] transition-all text-left">
+                    <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center text-xl mb-6 text-slate-400"><i className="fas fa-database"></i></div>
+                    <h3 className="text-2xl font-black mb-2 tracking-tight">AUDIT LOGS</h3>
+                    <p className="text-slate-400 text-xs font-bold leading-relaxed">過去の全てのログを確認し、必要に応じて修正します。</p>
+                  </button>
+                  <button onClick={() => setCurrentView('players')} className="group bg-white p-10 rounded-[3rem] text-slate-900 shadow-sm border border-slate-100 hover:scale-[1.02] transition-all text-left">
+                    <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-xl mb-6 text-emerald-600"><i className="fas fa-users"></i></div>
+                    <h3 className="text-2xl font-black mb-2 tracking-tight">ROSTERS</h3>
+                    <p className="text-slate-400 text-xs font-bold leading-relaxed">チームと選手の所属・詳細情報を管理します。</p>
+                  </button>
+                </div>
+            </div>
+          )}
+        </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-                <button onClick={() => setCurrentView('unified_entry')} className="group bg-indigo-600 p-10 rounded-[3rem] text-white shadow-2xl hover:scale-[1.02] transition-all text-left">
-                  <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center text-xl mb-6"><i className="fas fa-plus"></i></div>
-                  <h3 className="text-2xl font-black mb-2 tracking-tight">DATA ENTRY</h3>
-                  <p className="text-indigo-100 text-xs font-bold opacity-80 leading-relaxed">全ての投球・打席イベントをリアルタイムに記録します。</p>
-                </button>
-
-                <button onClick={() => setCurrentView('leaderboard')} className="group bg-white p-10 rounded-[3rem] text-slate-900 shadow-sm border border-slate-100 hover:scale-[1.02] transition-all text-left">
-                  <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-xl mb-6 text-indigo-600"><i className="fas fa-trophy"></i></div>
-                  <h3 className="text-2xl font-black mb-2 tracking-tight">LEADERBOARD</h3>
-                  <p className="text-slate-400 text-xs font-bold leading-relaxed">期間別、カテゴリ別のチーム成績を分析します。</p>
-                </button>
-
-                <button onClick={() => setCurrentView('unified_logs')} className="group bg-slate-900 p-10 rounded-[3rem] text-white shadow-xl hover:scale-[1.02] transition-all text-left">
-                  <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center text-xl mb-6 text-slate-400"><i className="fas fa-database"></i></div>
-                  <h3 className="text-2xl font-black mb-2 tracking-tight">AUDIT LOGS</h3>
-                  <p className="text-slate-400 text-xs font-bold leading-relaxed">過去の全てのログを確認し、必要に応じて修正します。</p>
-                </button>
-
-                <button onClick={() => setCurrentView('players')} className="group bg-white p-10 rounded-[3rem] text-slate-900 shadow-sm border border-slate-100 hover:scale-[1.02] transition-all text-left">
-                  <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-xl mb-6 text-emerald-600"><i className="fas fa-users"></i></div>
-                  <h3 className="text-2xl font-black mb-2 tracking-tight">ROSTERS</h3>
-                  <p className="text-slate-400 text-xs font-bold leading-relaxed">チームと選手の所属・詳細情報を管理します。</p>
-                </button>
-              </div>
-           </div>
-        ) : currentView === 'leaderboard' ? <Leaderboard />
-          : currentView === 'unified_entry' ? <UnifiedEntry />
-          : currentView === 'unified_logs' ? <UnifiedLogManager />
-          : <PlayerManager />
-        }
+        <div className={currentView === 'leaderboard' ? 'block' : 'hidden'}><Leaderboard /></div>
+        <div className={currentView === 'unified_entry' ? 'block' : 'hidden'}><UnifiedEntry /></div>
+        <div className={currentView === 'unified_logs' ? 'block' : 'hidden'}><UnifiedLogManager /></div>
+        <div className={currentView === 'players' ? 'block' : 'hidden'}><PlayerManager /></div>
       </main>
     </div>
   );

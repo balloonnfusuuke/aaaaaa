@@ -7,12 +7,14 @@ import { Player, Team, UnifiedRecord, PitchType, RunnerState, GameSituation, Swi
 export const UnifiedEntry: React.FC = () => {
   const [players, setPlayers] = useState<Player[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
-  
+  const [toast, setToast] = useState<{ message: string; show: boolean; type: 'success' | 'ending' }>({ message: '', show: false, type: 'success' });
+  const [showInPlayModal, setShowInPlayModal] = useState(false);
+
   // ゲーム基本設定
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [myTeamId, setMyTeamId] = useState('');
   const [opponentId, setOpponentId] = useState('');
-  const [isHome, setIsHome] = useState(true); // 自チームがホーム(後攻)ならtrue
+  const [isHome, setIsHome] = useState(true);
 
   // 試合状況
   const [inning, setInning] = useState(1);
@@ -23,23 +25,14 @@ export const UnifiedEntry: React.FC = () => {
   const [strikes, setStrikes] = useState(0);
   const [situation, setSituation] = useState<GameSituation>('接戦');
 
-  // アクター
+  // アクター・データ
   const [pitcherId, setPitcherId] = useState('');
   const [batterId, setBatterId] = useState('');
   const [atBatPitches, setAtBatPitches] = useState(1);
-
-  // 投手データ
   const [pitchType, setPitchType] = useState<PitchType>('ストレート');
   const [speed, setSpeed] = useState<number | ''>('');
   const [location, setLocation] = useState(13);
-  const [intent, setIntent] = useState<UnifiedRecord['intent']>('ストライク');
-  const [intentResult, setIntentResult] = useState<UnifiedRecord['intentResult']>('成功');
-  const [isPitchMiss, setIsPitchMiss] = useState(false);
   const [pitchOutcome, setPitchOutcome] = useState<UnifiedRecord['pitchOutcome']>('見逃しS');
-
-  // 打者データ
-  const [decision, setDecision] = useState<SwingDecision>('Take');
-  const [reaction, setReaction] = useState<UnifiedRecord['reaction']>('その他');
   const [isHardHit, setIsHardHit] = useState(false);
   const [isSweetSpot, setIsSweetSpot] = useState(false);
 
@@ -47,412 +40,232 @@ export const UnifiedEntry: React.FC = () => {
   const [paResult, setPaResult] = useState<PAResult>('進行中');
   const [battedAngle, setBattedAngle] = useState(10);
   const [direction, setDirection] = useState<HitDirection>('中');
-  const [ballDepth, setBallDepth] = useState<BattedBallDepth>('普通');
   const [rbi, setRbi] = useState(0);
   const [isAdvancement, setIsAdvancement] = useState(false);
 
   useEffect(() => {
-    onSnapshot(collection(db, 'teams'), (snap) => {
-      setTeams(snap.docs.map(d => ({ id: d.id, ...d.data() } as Team)));
-    });
+    onSnapshot(collection(db, 'teams'), (snap) => setTeams(snap.docs.map(d => ({ id: d.id, ...d.data() } as Team))));
     onSnapshot(collection(db, 'players'), (snap) => setPlayers(snap.docs.map(d => ({ id: d.id, ...d.data() } as Player))));
   }, []);
 
-  const getAngleCategory = (deg: number): LaunchAngle => {
-    if (deg < 10) return 'ゴロ';
-    if (deg < 25) return 'ライナー';
-    if (deg < 50) return 'フライ';
-    return 'ポップフライ';
-  };
-
-  const getTrajectoryColor = (deg: number) => {
-    if (deg < 10) return '#ef4444'; 
-    if (deg < 25) return '#10b981'; 
-    if (deg < 50) return '#6366f1'; 
-    return '#a855f7'; 
-  };
-
-  // 攻撃チーム・守備チームの判定ロジック
-  const getAttackingTeamId = () => {
-    if (!myTeamId || !opponentId) return null;
-    if (isHome) {
-      return isTop ? opponentId : myTeamId;
-    } else {
-      return isTop ? myTeamId : opponentId;
-    }
-  };
-
-  const getDefendingTeamId = () => {
-    if (!myTeamId || !opponentId) return null;
-    if (isHome) {
-      return isTop ? myTeamId : opponentId;
-    } else {
-      return isTop ? opponentId : myTeamId;
-    }
-  };
-
+  const getAttackingTeamId = () => isHome ? (isTop ? opponentId : myTeamId) : (isTop ? myTeamId : opponentId);
+  const getDefendingTeamId = () => isHome ? (isTop ? myTeamId : opponentId) : (isTop ? opponentId : myTeamId);
   const attackingTeamName = teams.find(t => t.id === getAttackingTeamId())?.name || '---';
-  const defendingTeamName = teams.find(t => t.id === getDefendingTeamId())?.name || '---';
+
+  const showSuccessToast = (message: string, isEnding: boolean) => {
+    setToast({ message, show: true, type: isEnding ? 'ending' : 'success' });
+    setTimeout(() => setToast(prev => ({ ...prev, show: false })), 2000);
+  };
 
   const handleSubmit = async () => {
-    if (!pitcherId || !batterId) return alert("投手と打者を選択してください");
-    if (!myTeamId || !opponentId) return alert("自チームと対戦相手を設定してください");
-
-    const oppName = teams.find(t => t.id === opponentId)?.name || '';
-
-    const record: UnifiedRecord = {
-      date, opponent: oppName, inning, isTop, outs, runners, balls, strikes, scoreDiff: 0, gameSituation: situation,
-      pitcherId, pitcherName: players.find(p=>p.id===pitcherId)?.name || '',
-      pitchType, speed: speed === '' ? null : Number(speed), location, intent, intentResult, isPitchMiss, pitchEval: '妥当',
-      pitchOutcome,
-      batterId, batterName: players.find(p=>p.id===batterId)?.name || '',
-      decision, reaction, isHardHit, isSweetSpot, pitchesSeenInATBat: atBatPitches,
-      paResult: pitchOutcome === 'インプレー' ? paResult : '進行中',
-      exitVelocity: 'Normal', launchAngle: getAngleCategory(battedAngle), battedAngle,
-      hitDirection: direction,
-      ballLoc: ['左', '左中', '中', '右中', '右'].includes(direction) ? '外野' : '内野',
-      ballDepth, isCaught: !['単打', '二塁打', '三塁打', '本塁打', '四球', '死球'].includes(paResult), 
-      rbi, isQualityOut: isAdvancement, forcedCloserPitches: atBatPitches >= 6,
-      createdAt: serverTimestamp()
-    };
+    if (!pitcherId || !batterId || !myTeamId || !opponentId) return alert("入力が不完全です");
+    const ending = (pitchOutcome === 'インプレー') || (pitchOutcome === 'ボール' && balls === 3) || (['見逃しS', '空振りS'].includes(pitchOutcome) && strikes === 2);
+    const finalPA = pitchOutcome === 'インプレー' ? paResult : (pitchOutcome === 'ボール' && balls === 3 ? '四球' : (pitchOutcome === '見逃しS' && strikes === 2 ? '三振(見逃し)' : (pitchOutcome === '空振りS' && strikes === 2 ? '三振(空振り)' : '進行中')));
 
     try {
-      await addDoc(collection(db, 'unified_logs'), record);
-      
-      if (pitchOutcome !== 'インプレー') {
-         setAtBatPitches(prev => prev + 1);
-         if (pitchOutcome === 'ボール' && balls < 3) setBalls(balls + 1);
-         if (['見逃しS', '空振りS'].includes(pitchOutcome) && strikes < 2) setStrikes(strikes + 1);
-         if (pitchOutcome === 'ファウル' && strikes < 2) setStrikes(strikes + 1);
+      await addDoc(collection(db, 'unified_logs'), {
+        date, inning, isTop, outs, runners, balls, strikes, gameSituation: situation,
+        pitcherId, pitcherName: players.find(p=>p.id===pitcherId)?.name || '',
+        pitchType, speed: speed === '' ? null : Number(speed), location, pitchOutcome,
+        batterId, batterName: players.find(p=>p.id===batterId)?.name || '',
+        isHardHit, isSweetSpot, pitchesSeenInATBat: atBatPitches, paResult: finalPA,
+        launchAngle: battedAngle < 10 ? 'ゴロ' : (battedAngle < 25 ? 'ライナー' : 'フライ'),
+        battedAngle, hitDirection: direction, rbi, isQualityOut: isAdvancement,
+        createdAt: serverTimestamp()
+      });
+
+      if (!ending) {
+        setAtBatPitches(prev => prev + 1);
+        if (pitchOutcome === 'ボール') setBalls(balls + 1);
+        if (['見逃しS', '空振りS', 'ファウル'].includes(pitchOutcome)) if (strikes < 2) setStrikes(strikes + 1);
+        showSuccessToast(`${atBatPitches}球目 保存`, false);
       } else {
-         let newOuts = outs;
-         const isSingleOut = ['三振(空振り)', '三振(見逃し)', '内野凡打', '外野フライ', 'ライナー', 'ポップフライ', '犠飛', '犠打'].includes(paResult);
-         const isDoublePlay = paResult === '併殺打';
-         
-         if (isSingleOut) newOuts += 1;
-         if (isDoublePlay) newOuts += 2;
-
-         if (newOuts >= 3) {
-            setOuts(0);
-            setRunners({ first: false, second: false, third: false });
-            if (isTop) {
-               setIsTop(false);
-            } else {
-               setIsTop(true);
-               setInning(prev => prev + 1);
-            }
-            // 攻守交代につき選手選択をリセット
-            setPitcherId('');
-            setBatterId('');
-         } else {
-            setOuts(newOuts);
-            // アウトになっても打者は交代
-            setBatterId('');
-         }
-
-         setAtBatPitches(1);
-         setBalls(0);
-         setStrikes(0);
-         setPitchOutcome('見逃しS');
-         setPaResult('進行中');
-         setIsAdvancement(false);
-         setRbi(0);
-         setBattedAngle(10);
+        let nOuts = outs + (['三振(空振り)', '三振(見逃し)', '内野凡打', '外野フライ', 'ライナー', 'ポップフライ', '犠飛', '犠打'].includes(finalPA) ? 1 : (finalPA === '併殺打' ? 2 : 0));
+        if (nOuts >= 3) { setOuts(0); setRunners({first:false,second:false,third:false}); if (isTop) setIsTop(false); else {setIsTop(true); setInning(i=>i+1);} setPitcherId(''); }
+        else setOuts(nOuts);
+        setBatterId(''); setAtBatPitches(1); setBalls(0); setStrikes(0); setPitchOutcome('見逃しS'); setPaResult('進行中'); setRbi(0); setShowInPlayModal(false);
+        showSuccessToast(finalPA, true);
       }
       setSpeed('');
-      setIsPitchMiss(false);
-      setIntentResult('成功');
     } catch (e) { alert("保存失敗"); }
   };
 
-  const PlayerSelect = ({ id, value, onChange, label, teamId }: { id: string, value: string, onChange: (val: string) => void, label: string, teamId: string | null }) => {
-    const filteredPlayers = players.filter(p => p.teamId === teamId);
-    const teamName = teams.find(t => t.id === teamId)?.name || '未設定';
-
+  const PlayerSelect = ({ value, onChange, teamId, role }: { value: string, onChange: (v: string) => void, teamId: string | null, role: 'P' | 'B' }) => {
+    const tp = players.filter(p => p.teamId === teamId);
     return (
-      <div className="space-y-2">
-        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">{label} ({teamName})</label>
-        <select value={value} onChange={e=>onChange(e.target.value)} className="w-full bg-slate-50 p-4 rounded-2xl font-black text-slate-800 border-none outline-none appearance-none">
-          <option value="">選手を選択</option>
-          {filteredPlayers.map(p => (
-            <option key={p.id} value={p.id}>#{p.number} {p.name} ({p.position})</option>
-          ))}
-        </select>
-      </div>
+      <select value={value} onChange={e=>onChange(e.target.value)} className="w-full bg-slate-100 p-2 rounded-xl font-black text-xs border-none outline-none appearance-none text-slate-700">
+        <option value="">{role}選択</option>
+        {tp.map(p => <option key={p.id} value={p.id}>#{p.number} {p.name}</option>)}
+      </select>
     );
   };
 
-  const isInPlayMode = pitchOutcome === 'インプレー';
-
   return (
-    <div className="relative space-y-8 animate-fade-in pb-96">
-      {/* Game Config Section */}
-      <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
-         <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">自チーム (My Team)</label>
-            <select value={myTeamId} onChange={e=>setMyTeamId(e.target.value)} className="w-full bg-slate-50 p-3 rounded-xl font-bold border-none">
-              <option value="">選択してください</option>
-              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-         </div>
-         <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">対戦相手 (Opponent)</label>
-            <select value={opponentId} onChange={e=>setOpponentId(e.target.value)} className="w-full bg-slate-50 p-3 rounded-xl font-bold border-none">
-              <option value="">選択してください</option>
-              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-         </div>
-         <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">立場</label>
-            <div className="flex bg-slate-100 p-1 rounded-xl">
-               <button onClick={()=>setIsHome(true)} className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${isHome ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>ホーム(後攻)</button>
-               <button onClick={()=>setIsHome(false)} className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${!isHome ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>ビジター(先攻)</button>
-            </div>
-         </div>
-         <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">試合日</label>
-            <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full bg-slate-50 p-3 rounded-xl font-bold border-none" />
-         </div>
+    <div className="h-[calc(100vh-120px)] flex flex-col space-y-3 overflow-hidden animate-fade-in relative">
+      {/* Toast */}
+      <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[150] transition-all duration-300 ${toast.show ? 'translate-y-0 opacity-100' : '-translate-y-12 opacity-0 pointer-events-none'}`}>
+        <div className={`px-6 py-3 rounded-full shadow-2xl flex items-center space-x-3 border ${toast.type === 'ending' ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-900 text-white border-slate-800'}`}>
+          <i className={`fas ${toast.type === 'ending' ? 'fa-check-double' : 'fa-check'} text-xs`}></i>
+          <span className="font-black text-xs tracking-tight uppercase">{toast.message}</span>
+        </div>
       </div>
 
-      {/* Status Bar */}
-      <div className="bg-slate-900 text-white p-8 rounded-[3rem] shadow-2xl flex flex-wrap items-center justify-between gap-8 border-b-8 border-slate-950">
-        <div className="flex items-center space-x-10">
-           <div className="space-y-1 text-center">
-             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">アウト</span>
-             <div className="flex space-x-2">
-                {[1, 2].map(n => <div key={n} onClick={() => setOuts(n === outs ? n - 1 : n)} className={`w-6 h-6 rounded-full border-2 cursor-pointer transition-all ${outs >= n ? 'bg-red-500 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.5)]' : 'border-slate-700'}`}></div>)}
-             </div>
-           </div>
-           <div className="h-12 w-px bg-slate-800"></div>
-           <div className="space-y-1">
-             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">B-S カウント</span>
-             <div className="flex items-center space-x-6">
-                <div className="flex space-x-2">
-                  <span className="text-xs font-black text-blue-400 mr-1">B</span>
-                  {[1,2,3].map(n => <div key={n} onClick={() => setBalls(n === balls ? n - 1 : n)} className={`w-5 h-5 rounded-full cursor-pointer transition-all ${balls >= n ? 'bg-blue-400 shadow-[0_0_15px_rgba(96,165,250,0.6)]' : 'bg-slate-800'}`}></div>)}
-                </div>
-                <div className="flex space-x-2">
-                  <span className="text-xs font-black text-yellow-400 mr-1">S</span>
-                  {[1,2].map(n => <div key={n} onClick={() => setStrikes(n === strikes ? n - 1 : n)} className={`w-5 h-5 rounded-full cursor-pointer transition-all ${strikes >= n ? 'bg-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.6)]' : 'bg-slate-800'}`}></div>)}
-                </div>
-             </div>
-           </div>
+      {/* 1. Compact Header (Config) */}
+      <div className="bg-white px-6 py-2 rounded-2xl border flex items-center justify-between text-[10px] font-black shrink-0 shadow-sm">
+        <div className="flex items-center space-x-4">
+          <select value={myTeamId} onChange={e=>setMyTeamId(e.target.value)} className="bg-transparent border-none p-0 focus:ring-0">
+            <option value="">自チーム</option>
+            {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          <span className="text-slate-300">VS</span>
+          <select value={opponentId} onChange={e=>setOpponentId(e.target.value)} className="bg-transparent border-none p-0 focus:ring-0">
+            <option value="">対戦相手</option>
+            {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
         </div>
-        
-        <div className="flex flex-col items-center">
-           <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em] mb-1">攻撃中: {isTop ? '表' : '裏'}</span>
-           <div className="bg-indigo-600 px-8 py-3 rounded-full shadow-lg shadow-indigo-900/40 animate-pulse">
-              <span className="text-xl font-black italic tracking-tighter">{attackingTeamName}</span>
+        <div className="flex items-center space-x-3">
+          <button onClick={()=>setIsHome(!isHome)} className="text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full uppercase">{isHome?'Home':'Visitor'}</button>
+          <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="bg-transparent border-none p-0 focus:ring-0" />
+        </div>
+      </div>
+
+      {/* 2. Unified Status & Actor Bar */}
+      <div className="bg-slate-900 rounded-[2rem] p-4 flex items-center justify-between shrink-0 shadow-xl border-b-4 border-slate-950">
+        <div className="flex items-center space-x-4">
+          <div className="bg-slate-800 px-4 py-2 rounded-xl text-center min-w-[60px]">
+            <span className="block text-[8px] text-slate-500 font-black uppercase">Inning</span>
+            <span className="text-xl font-black text-white">{inning}<span className="text-[10px] ml-1">{isTop?'表':'裏'}</span></span>
+          </div>
+          <div className="flex space-x-1">
+            {[1, 2].map(n => <div key={n} onClick={()=>setOuts(n===outs?n-1:n)} className={`w-4 h-4 rounded-full border-2 cursor-pointer ${outs>=n?'bg-red-500 border-red-400':'border-slate-700'}`}></div>)}
+          </div>
+        </div>
+
+        <div className="flex-1 px-6 flex justify-center">
+          <div className="bg-indigo-600 px-4 py-1.5 rounded-full shadow-lg">
+             <span className="text-xs font-black italic text-white uppercase tracking-tighter">Attack: {attackingTeamName}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-4">
+           <div className="flex space-x-1"><span className="text-[10px] text-blue-400 font-black mr-1">B</span>{[1,2,3].map(n=><div key={n} onClick={()=>setBalls(n===balls?n-1:n)} className={`w-3.5 h-3.5 rounded-full ${balls>=n?'bg-blue-400 shadow-glow':'bg-slate-800'}`}></div>)}</div>
+           <div className="flex space-x-1"><span className="text-[10px] text-yellow-400 font-black mr-1">S</span>{[1,2].map(n=><div key={n} onClick={()=>setStrikes(n===strikes?n-1:n)} className={`w-3.5 h-3.5 rounded-full ${strikes>=n?'bg-yellow-400 shadow-glow':'bg-slate-800'}`}></div>)}</div>
+        </div>
+      </div>
+
+      {/* 3. Input Zone Area (The Core) */}
+      <div className="flex-1 grid grid-cols-12 gap-4 min-h-0">
+        {/* Left: Pitcher Card */}
+        <div className="col-span-3 flex flex-col space-y-2">
+          <div className="bg-white p-3 rounded-2xl border flex-1 space-y-2 overflow-hidden">
+            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block">Pitcher</span>
+            <PlayerSelect value={pitcherId} onChange={setPitcherId} teamId={getDefendingTeamId()} role="P" />
+            <select value={pitchType} onChange={e=>setPitchType(e.target.value as any)} className="w-full bg-slate-50 p-2 rounded-xl text-[10px] font-bold border-none">
+              {['ストレート', 'スライダー', 'カット', 'カーブ', 'フォーク', 'チェンジアップ', 'その他'].map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+            <input type="number" value={speed} onChange={e=>setSpeed(e.target.value===''?'':Number(e.target.value))} placeholder="km/h" className="w-full bg-slate-900 text-white p-3 rounded-xl font-black text-center text-sm outline-none" />
+          </div>
+        </div>
+
+        {/* Center: Strike Zone */}
+        <div className="col-span-6 bg-white p-4 rounded-[2.5rem] border shadow-sm flex flex-col items-center justify-center min-h-0 overflow-hidden">
+           <div className="aspect-square w-full max-w-[280px] bg-slate-50 rounded-[2rem] p-4 border-4 border-slate-100 grid grid-cols-5 grid-rows-5 gap-1.5 relative shrink-0">
+              {Array.from({length:25}).map((_,i)=>{
+                const n = i+1; const isZ = [7,8,9,12,13,14,17,18,19].includes(n);
+                return <button key={n} onClick={()=>setLocation(n)} className={`rounded-lg text-[8px] font-black transition-all ${location===n?'bg-indigo-600 text-white scale-110 shadow-lg z-10':isZ?'bg-white border-2 border-indigo-100 text-indigo-200':'bg-slate-100 text-slate-300'}`}>{n}</button>
+              })}
            </div>
         </div>
 
-        <div className="flex items-center space-x-6">
-          <div className="bg-slate-800 px-8 py-4 rounded-[1.5rem] flex items-center space-x-4 border border-slate-700">
-             <div className="flex flex-col items-center">
-                <span className="text-[8px] font-black text-slate-500 uppercase">INNING</span>
-                <span className="text-3xl font-black text-white">{inning}</span>
-             </div>
-             <div className="h-8 w-px bg-slate-700"></div>
-             <div className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${isTop ? 'bg-indigo-600 text-white' : 'bg-emerald-600 text-white'}`}>
-                {isTop ? '表' : '裏'}
-             </div>
+        {/* Right: Batter Card */}
+        <div className="col-span-3 flex flex-col space-y-2">
+          <div className="bg-white p-3 rounded-2xl border flex-1 space-y-2 overflow-hidden">
+            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block">Batter</span>
+            <PlayerSelect value={batterId} onChange={setBatterId} teamId={getAttackingTeamId()} role="B" />
+            <div className="grid grid-cols-1 gap-1.5 mt-2">
+               <button onClick={()=>setIsHardHit(!isHardHit)} className={`py-2 rounded-xl text-[8px] font-black border transition-all ${isHardHit?'bg-orange-500 text-white border-orange-400 shadow-sm':'bg-slate-50 text-slate-400'}`}>HARD HIT</button>
+               <button onClick={()=>setIsSweetSpot(!isSweetSpot)} className={`py-2 rounded-xl text-[8px] font-black border transition-all ${isSweetSpot?'bg-emerald-500 text-white border-emerald-400 shadow-sm':'bg-slate-50 text-slate-400'}`}>SWEET SPOT</button>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* PITCHER Selection Area */}
-        <div className="lg:col-span-3 space-y-6">
-          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4">
-               <span className="text-[8px] font-black text-indigo-500 bg-indigo-50 px-2 py-1 rounded">DEFENDING</span>
-            </div>
-            <h4 className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-6"><i className="fas fa-mound mr-2"></i> PITCHER</h4>
-            <div className="space-y-6">
-              <PlayerSelect 
-                id="pitcher" 
-                value={pitcherId} 
-                onChange={setPitcherId} 
-                label="投手" 
-                teamId={getDefendingTeamId()} 
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <select value={pitchType} onChange={e=>setPitchType(e.target.value as any)} className="bg-slate-50 p-3 rounded-xl font-bold border-none text-xs">
-                  {['ストレート', 'スライダー', 'カット', 'カーブ', 'フォーク', 'チェンジアップ', 'シンカー', 'シュート', 'その他'].map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <input type="number" value={speed} onChange={e=>setSpeed(e.target.value===''?'':Number(e.target.value))} placeholder="km/h" className="bg-slate-50 p-3 rounded-xl font-black border-none text-center outline-none" />
-              </div>
-            </div>
-          </div>
+      {/* 4. Action Buttons (Compact Bottom) */}
+      <div className="shrink-0 space-y-3 pb-2">
+        <div className="grid grid-cols-5 gap-2">
+          {(['見逃しS', '空振りS', 'ファウル', 'ボール'] as const).map(res => (
+             <button key={res} onClick={()=>setPitchOutcome(res)} className={`py-4 rounded-xl text-[10px] font-black border-2 transition-all ${pitchOutcome===res?'bg-slate-900 text-white border-slate-900 shadow-lg': 'bg-white text-slate-400 border-slate-100'}`}>
+               {res}
+             </button>
+          ))}
+          <button onClick={()=>{ setPitchOutcome('インプレー'); setPaResult('内野凡打'); setShowInPlayModal(true); }} className="py-4 rounded-xl text-[10px] font-black border-2 bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100">
+            IN-PLAY
+          </button>
         </div>
 
-        {/* STRIKE ZONE Area */}
-        <div className="lg:col-span-6">
-          <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl flex flex-col items-center">
-            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-8">ZONE SELECTION</h4>
-            <div className="aspect-square w-full max-w-md bg-slate-50 rounded-[3rem] p-8 border-4 border-slate-100 grid grid-cols-5 grid-rows-5 gap-2 relative">
-               {Array.from({length: 25}).map((_, i) => {
-                 const n = i+1;
-                 const isZone = [7,8,9,12,13,14,17,18,19].includes(n);
-                 return (
-                   <button key={n} onClick={()=>setLocation(n)} className={`rounded-xl text-[10px] font-black transition-all ${location===n ? 'bg-indigo-600 text-white scale-125 shadow-2xl z-10' : isZone ? 'bg-white border-2 border-indigo-100 text-indigo-200' : 'bg-slate-100 text-slate-300 hover:bg-slate-200'}`}>
-                     {n}
-                   </button>
-                 );
-               })}
-            </div>
+        <button onClick={handleSubmit} className="w-full py-5 bg-indigo-600 text-white rounded-3xl font-black text-xl shadow-[0_15px_40px_rgba(79,70,229,0.3)] hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center space-x-3 border-b-4 border-indigo-800">
+          <i className="fas fa-save text-sm"></i>
+          <span className="uppercase tracking-tighter">
+            {pitchOutcome==='ボール'&&balls===3?'Four-Ball' : ['見逃しS','空振りS'].includes(pitchOutcome)&&strikes===2?'Strike-Out' : 'Record Pitch'}
+          </span>
+        </button>
+      </div>
 
-            <div className="w-full mt-12 space-y-8">
-               <div className="grid grid-cols-5 gap-3">
-                  {(['見逃しS', '空振りS', 'ファウル', 'ボール', 'インプレー'] as const).map(res => (
-                     <button key={res} onClick={() => { setPitchOutcome(res); if (res === 'インプレー') setDecision('Swing'); }} className={`py-5 rounded-2xl text-[10px] font-black transition-all border-2 ${pitchOutcome === res ? 'bg-slate-900 text-white border-slate-900 shadow-xl' : 'bg-slate-50 text-slate-400 border-slate-100 hover:border-slate-300'}`}>
-                       {res}
-                     </button>
+      {/* Modal - InPlay (Remains as is, but ensuring it's efficient) */}
+      {showInPlayModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md animate-scale-in">
+          <div className="bg-white rounded-[3rem] w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-8 border-b flex justify-between items-center bg-indigo-600 text-white">
+               <h3 className="text-2xl font-black italic tracking-tighter uppercase">In-Play Detail</h3>
+               <button onClick={()=>{setShowInPlayModal(false); setPitchOutcome('見逃しS');}} className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center"><i className="fas fa-times"></i></button>
+            </div>
+            <div className="p-8 overflow-y-auto grid grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-slate-400 uppercase">RESULT</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {['単打', '二塁打', '三塁打', '本塁打', '内野凡打', '外野フライ', 'ライナー', 'ポップフライ', '併殺打', '犠飛', '犠打'].map(res => (
+                    <button key={res} onClick={()=>setPaResult(res as PAResult)} className={`py-3 rounded-xl text-[10px] font-black border-2 transition-all ${paResult===res?'bg-slate-900 text-white border-slate-900':'bg-slate-50 text-slate-400 border-slate-100'}`}>{res}</button>
                   ))}
-               </div>
-            </div>
-          </div>
-        </div>
-
-        {/* BATTER Selection Area */}
-        <div className="lg:col-span-3 space-y-6">
-          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4">
-               <span className="text-[8px] font-black text-emerald-500 bg-emerald-50 px-2 py-1 rounded">ATTACKING</span>
-            </div>
-            <h4 className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-6"><i className="fas fa-bat mr-2"></i> BATTER</h4>
-            <div className="space-y-6">
-              <PlayerSelect 
-                id="batter" 
-                value={batterId} 
-                onChange={setBatterId} 
-                label="打者" 
-                teamId={getAttackingTeamId()} 
-              />
-              <div className="grid grid-cols-2 gap-3">
-                 <button onClick={()=>setIsHardHit(!isHardHit)} className={`py-4 rounded-xl text-[10px] font-black border transition-all ${isHardHit ? 'bg-orange-500 text-white shadow-lg border-orange-400' : 'bg-white text-slate-400 border-slate-100'}`}>強打</button>
-                 <button onClick={()=>setIsSweetSpot(!isSweetSpot)} className={`py-4 rounded-xl text-[10px] font-black border transition-all ${isSweetSpot ? 'bg-emerald-500 text-white shadow-lg border-emerald-400' : 'bg-white text-slate-400 border-slate-100'}`}>芯</button>
+                </div>
+              </div>
+              <div className="space-y-6">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-2">DIRECTION</label>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {['左', '左中', '中', '右中', '右'].map(d => (
+                      <button key={d} onClick={()=>setDirection(d as any)} className={`py-3 text-[10px] font-black rounded-xl border-2 ${direction===d?'bg-emerald-600 text-white border-emerald-500':'bg-slate-50 text-slate-400 border-slate-100'}`}>{d}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-2">RBI</label>
+                    <div className="flex items-center justify-between bg-slate-50 p-2 rounded-xl">
+                       <button onClick={()=>setRbi(Math.max(0,rbi-1))} className="w-8 h-8 bg-white rounded-lg shadow-sm"><i className="fas fa-minus text-[10px]"></i></button>
+                       <span className="text-xl font-black text-indigo-600">{rbi}</span>
+                       <button onClick={()=>setRbi(rbi+1)} className="w-8 h-8 bg-white rounded-lg shadow-sm"><i className="fas fa-plus text-[10px]"></i></button>
+                    </div>
+                  </div>
+                  <div className="flex flex-col justify-end">
+                    <button onClick={()=>setIsAdvancement(!isAdvancement)} className={`w-full py-4 rounded-xl text-[10px] font-black border-2 ${isAdvancement?'bg-emerald-600 text-white border-emerald-500':'bg-slate-50 text-slate-400 border-slate-100'}`}>QUALITY OUT</button>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* RESULT PANEL with VISUAL TRAJECTORY DIAGRAM */}
-      {isInPlayMode && (
-        <div className="bg-white p-10 rounded-[4rem] border-2 border-indigo-600 shadow-[0_30px_80px_rgba(79,70,229,0.2)] animate-scale-in space-y-10">
-          <div className="flex items-center justify-between border-b pb-6">
-             <h3 className="text-2xl font-black italic tracking-tighter text-indigo-600">IN-PLAY RESULT DETAILS</h3>
-             <div className="flex space-x-2">
-               <span className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-widest">Trajectory Simulator Active</span>
-             </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-            <div className="lg:col-span-4 flex flex-col items-center justify-center space-y-6">
-               <div className="w-full aspect-[4/3] bg-slate-50 rounded-[2rem] border-2 border-slate-100 relative overflow-hidden p-4">
-                  <svg viewBox="0 0 100 60" className="w-full h-full drop-shadow-lg">
-                    <line x1="10" y1="55" x2="90" y2="55" stroke="#cbd5e1" strokeWidth="2" strokeLinecap="round" />
-                    <path 
-                      d={`M 10 55 Q 50 ${55 - (battedAngle * 1.5)} 90 ${battedAngle > 0 ? 55 - (battedAngle * 0.8) : 55}`} 
-                      fill="none" 
-                      stroke={getTrajectoryColor(battedAngle)} 
-                      strokeWidth="3" 
-                      strokeDasharray="2 2"
-                      className="transition-all duration-300"
-                    />
-                    <circle 
-                      cx="50" 
-                      cy={55 - (battedAngle * 0.75)} 
-                      r="2.5" 
-                      fill={getTrajectoryColor(battedAngle)}
-                      className="transition-all duration-300"
-                    />
-                    <circle cx="10" cy="55" r="3" fill="#64748b" />
-                    <text x="50" y="58" textAnchor="middle" fontSize="4" fontWeight="bold" fill="#94a3b8">FIELD SURFACE</text>
-                  </svg>
-               </div>
-               <div className="text-center">
-                 <span className="text-4xl font-black italic text-slate-900">{battedAngle}°</span>
-                 <span className="block text-[10px] font-black uppercase tracking-widest mt-1" style={{ color: getTrajectoryColor(battedAngle) }}>
-                   {getAngleCategory(battedAngle)}
-                 </span>
-               </div>
-            </div>
-
-            <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-               <div className="space-y-6">
-                  <div className="space-y-4">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">打席結果</label>
-                    <select value={paResult} onChange={e=>setPaResult(e.target.value as any)} className="w-full p-5 bg-slate-900 text-white rounded-[2rem] font-black text-sm appearance-none outline-none focus:ring-4 focus:ring-indigo-300 transition-all">
-                        <option value="進行中">--- 選択 ---</option>
-                        <optgroup label="ヒット">
-                          <option value="単打">単打</option><option value="二塁打">二塁打</option><option value="三塁打">三塁打</option><option value="本塁打">本塁打</option>
-                        </optgroup>
-                        <optgroup label="アウト">
-                          <option value="内野凡打">内野凡打</option><option value="外野フライ">外野フライ</option><option value="ライナー">ライナー</option><option value="ポップフライ">ポップフライ</option><option value="併殺打">併殺打</option><option value="三振(空振り)">三振(空振り)</option><option value="三振(見逃し)">三振(見逃し)</option>
-                        </optgroup>
-                    </select>
-                  </div>
-                  <div className="space-y-4">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">打球角度調整</label>
-                    <input type="range" min="-30" max="80" value={battedAngle} onChange={e=>setBattedAngle(Number(e.target.value))} className="w-full h-3 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-600" />
-                    <div className="grid grid-cols-5 gap-2">
-                       {[-10, 5, 15, 30, 60].map(deg => (
-                         <button key={deg} onClick={()=>setBattedAngle(deg)} className="py-2 bg-slate-50 rounded-lg text-[10px] font-black hover:bg-slate-100">{deg}°</button>
-                       ))}
-                    </div>
-                  </div>
-               </div>
-
-               <div className="space-y-6">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-4">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">打点 (RBI)</label>
-                      <div className="flex items-center bg-slate-50 p-2 rounded-2xl justify-between border border-slate-100">
-                        <button onClick={()=>setRbi(Math.max(0, rbi-1))} className="w-10 h-10 bg-white rounded-xl shadow-sm"><i className="fas fa-minus text-slate-400"></i></button>
-                        <span className="text-xl font-black text-indigo-600">{rbi}</span>
-                        <button onClick={()=>setRbi(rbi+1)} className="w-10 h-10 bg-white rounded-xl shadow-sm"><i className="fas fa-plus text-slate-400"></i></button>
-                      </div>
-                    </div>
-                    <div className="space-y-4">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">貢献度</label>
-                      <button onClick={()=>setIsAdvancement(!isAdvancement)} className={`w-full py-5 rounded-2xl text-[10px] font-black border-2 transition-all ${isAdvancement ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>
-                        {isAdvancement ? 'QUALITY' : 'NORMAL'}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">打球方向・深度</label>
-                     <div className="grid grid-cols-5 gap-1 mb-2">
-                        {(['左', '左中', '中', '右中', '右'] as const).map(d => (
-                          <button key={d} onClick={()=>setDirection(d)} className={`py-3 text-[8px] font-black rounded-xl transition-all ${direction === d ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-50 text-slate-400'}`}>{d}</button>
-                        ))}
-                     </div>
-                     <div className="grid grid-cols-5 gap-1">
-                        {(['極浅', '浅い', '普通', '深い', '極深'] as const).map(d => (
-                          <button key={d} onClick={()=>setBallDepth(d)} className={`py-3 text-[8px] font-black rounded-xl transition-all ${ballDepth === d ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-50 text-slate-400'}`}>{d}</button>
-                        ))}
-                     </div>
-                  </div>
-               </div>
+            <div className="p-8 bg-slate-50 border-t flex space-x-4">
+               <button onClick={handleSubmit} className="w-full py-6 bg-indigo-600 text-white rounded-2xl font-black text-xl shadow-xl flex items-center justify-center space-x-4">
+                  <i className="fas fa-save"></i>
+                  <span>COMPLETE AT-BAT</span>
+               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* FLOATING ACTION AREA */}
-      <div className="fixed bottom-36 left-1/2 -translate-x-1/2 w-full max-w-lg px-6 z-[65]">
-        <button onClick={handleSubmit} className="w-full py-7 bg-indigo-600 text-white rounded-[2.5rem] font-black text-2xl shadow-[0_25px_60px_rgba(79,70,229,0.4)] hover:scale-[1.03] active:scale-95 transition-all flex items-center justify-center space-x-6 border-b-8 border-indigo-800">
-          <i className="fas fa-save text-white"></i>
-          <span>{isInPlayMode ? '打席完了を保存' : 'この1球を記録'}</span>
-        </button>
-      </div>
-
       <style>{`
-        .animate-scale-in { animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-        @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .shadow-glow { box-shadow: 0 0 10px rgba(96, 165, 250, 0.5); }
+        .animate-scale-in { animation: scaleIn 0.2s ease-out; }
+        @keyframes scaleIn { from { transform: scale(0.98); opacity: 0; } to { transform: scale(1); opacity: 1; } }
       `}</style>
     </div>
   );
